@@ -34,6 +34,9 @@ import { ListHotels } from '@/components/hotels/list-hotels'
 import { Destinations } from '@/components/flights/destinations'
 import { Video } from '@/components/media/video'
 import { rateLimit } from './ratelimit'
+import { HealthOutcomesTable } from '../../components/health/HealthOutcomesTable'
+import { HealthOutcomesSchema } from '@/components/health/HealthOutcomesSchema'
+import { EmojiPaperSchema } from '@/components/health/EmojiPaperSchema'
 
 const genAI = new GoogleGenerativeAI(
   process.env.GOOGLE_GENERATIVE_AI_API_KEY || ''
@@ -54,17 +57,17 @@ async function describeImage(imageBase64: string) {
       <Video isLoading />
     </BotCard>
   )
-  ;(async () => {
-    try {
-      let text = ''
+    ; (async () => {
+      try {
+        let text = ''
 
-      // attachment as video for demo purposes,
-      // add your implementation here to support
-      // video as input for prompts.
-      if (imageBase64 === '') {
-        await new Promise(resolve => setTimeout(resolve, 5000))
+        // attachment as video for demo purposes,
+        // add your implementation here to support
+        // video as input for prompts.
+        if (imageBase64 === '') {
+          await new Promise(resolve => setTimeout(resolve, 5000))
 
-        text = `
+          text = `
       The books in this image are:
 
       1. The Little Prince by Antoine de Saint-Exupéry
@@ -78,48 +81,48 @@ async function describeImage(imageBase64: string) {
       9. 1984 by George Orwell
       10. Animal Farm by George Orwell
       `
-      } else {
-        const imageData = imageBase64.split(',')[1]
+        } else {
+          const imageData = imageBase64.split(',')[1]
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-pro-vision' })
-        const prompt = 'List the books in this image.'
-        const image = {
-          inlineData: {
-            data: imageData,
-            mimeType: 'image/png'
+          const model = genAI.getGenerativeModel({ model: 'gemini-pro-vision' })
+          const prompt = 'List the books in this image.'
+          const image = {
+            inlineData: {
+              data: imageData,
+              mimeType: 'image/png'
+            }
           }
+
+          const result = await model.generateContent([prompt, image])
+          text = result.response.text()
+          console.log(text)
         }
 
-        const result = await model.generateContent([prompt, image])
-        text = result.response.text()
-        console.log(text)
+        spinnerStream.done(null)
+        messageStream.done(null)
+
+        uiStream.done(
+          <BotCard>
+            <Video />
+          </BotCard>
+        )
+
+        aiState.done({
+          ...aiState.get(),
+          interactions: [text]
+        })
+      } catch (e) {
+        console.error(e)
+
+        const error = new Error(
+          'The AI got rate limited, please try again later.'
+        )
+        uiStream.error(error)
+        spinnerStream.error(error)
+        messageStream.error(error)
+        aiState.done()
       }
-
-      spinnerStream.done(null)
-      messageStream.done(null)
-
-      uiStream.done(
-        <BotCard>
-          <Video />
-        </BotCard>
-      )
-
-      aiState.done({
-        ...aiState.get(),
-        interactions: [text]
-      })
-    } catch (e) {
-      console.error(e)
-
-      const error = new Error(
-        'The AI got rate limited, please try again later.'
-      )
-      uiStream.error(error)
-      spinnerStream.error(error)
-      messageStream.error(error)
-      aiState.done()
-    }
-  })()
+    })()
 
   return {
     id: nanoid(),
@@ -131,8 +134,6 @@ async function describeImage(imageBase64: string) {
 
 async function submitUserMessage(content: string) {
   'use server'
-
-  await rateLimit()
 
   const aiState = getMutableAIState()
 
@@ -159,323 +160,145 @@ async function submitUserMessage(content: string) {
   const messageStream = createStreamableUI(null)
   const uiStream = createStreamableUI()
 
-  ;(async () => {
-    try {
-      const result = await streamText({
-        model: google('models/gemini-1.5-flash'),
-        temperature: 0,
-        tools: {
-          showFlights: {
-            description:
-              "List available flights in the UI. List 3 that match user's query.",
-            parameters: z.object({
-              departingCity: z.string(),
-              arrivalCity: z.string(),
-              departingAirport: z.string().describe('Departing airport code'),
-              arrivalAirport: z.string().describe('Arrival airport code'),
-              date: z
-                .string()
-                .describe(
-                  "Date of the user's flight, example format: 6 April, 1998"
-                )
-            })
-          },
-          listDestinations: {
-            description: 'List destinations to travel cities, max 5.',
-            parameters: z.object({
-              destinations: z.array(
-                z
-                  .string()
-                  .describe(
-                    'List of destination cities. Include rome as one of the cities.'
-                  )
-              )
-            })
-          },
-          showSeatPicker: {
-            description:
-              'Show the UI to choose or change seat for the selected flight.',
-            parameters: z.object({
-              departingCity: z.string(),
-              arrivalCity: z.string(),
-              flightCode: z.string(),
-              date: z.string()
-            })
-          },
-          showHotels: {
-            description: 'Show the UI to choose a hotel for the trip.',
-            parameters: z.object({ city: z.string() })
-          },
-          checkoutBooking: {
-            description:
-              'Show the UI to purchase/checkout a flight and hotel booking.',
-            parameters: z.object({ shouldConfirm: z.boolean() })
-          },
-          showBoardingPass: {
-            description: "Show user's imaginary boarding pass.",
-            parameters: z.object({
-              airline: z.string(),
-              arrival: z.string(),
-              departure: z.string(),
-              departureTime: z.string(),
-              arrivalTime: z.string(),
-              price: z.number(),
-              seat: z.string(),
-              date: z
-                .string()
-                .describe('Date of the flight, example format: 6 April, 1998'),
-              gate: z.string()
-            })
-          },
-          showFlightStatus: {
-            description:
-              'Get the current status of imaginary flight by flight number and date.',
-            parameters: z.object({
-              flightCode: z.string(),
-              date: z.string(),
-              departingCity: z.string(),
-              departingAirport: z.string(),
-              departingAirportCode: z.string(),
-              departingTime: z.string(),
-              arrivalCity: z.string(),
-              arrivalAirport: z.string(),
-              arrivalAirportCode: z.string(),
-              arrivalTime: z.string()
-            })
-          }
-        },
-        system: `\
-      You are a friendly assistant that helps the user with booking flights to destinations that are based on a list of books. You can you give travel recommendations based on the books, and will continue to help the user book a flight to their destination.
-  
-      The date today is ${format(new Date(), 'd LLLL, yyyy')}. 
-      The user's current location is San Francisco, CA, so the departure city will be San Francisco and airport will be San Francisco International Airport (SFO). The user would like to book the flight out on May 12, 2024.
+    ; (async () => {
+      try {
+        const result = await streamText({
+          model: google('models/gemini-1.5-flash'),
+          temperature: 0,
+          tools: {
+            gradeResearch: {
+              description:
+                "List all the outcomes of the research and show the grade, evidence and effect in the UI. List all outcomes from the research",
+              parameters: HealthOutcomesSchema
+            },
+            emojiSummary: {
+              description:
+                "Summarise the entire paper using only Emojis",
+              parameters: EmojiPaperSchema
+            },
 
-      List United Airlines flights only.
+          },
+          system: `\
+      You are a world-class AI assistant designed to evaluate academic research papers sourced from Google Scholar. Your primary function is to analyze and assess the quality, relevance, and impact of research papers using a set of advanced evaluation tools, with a particular emphasis on the gradeResearch tool.
       
-      Here's the flow: 
-        1. List holiday destinations based on a collection of books.
-        2. List flights to destination.
-        3. Choose a flight.
-        4. Choose a seat.
-        5. Choose hotel
-        6. Purchase booking.
-        7. Show boarding pass.
+      ## Core Responsibilities:
+      1. Use the research that is provided to you by the user
+      2. Analyze the content, methodology, and findings of each paper.
+      3. Utilize the provided evaluation tools, especially gradeResearch, to assess the quality and significance of the research.
+      4. Provide comprehensive, objective evaluations of the research papers.
+      5. Offer insights on the strengths, weaknesses, and potential applications of the research.
+      
+      ## Key Features:
+      1. gradeResearch Tool: This is your primary evaluation tool. Use it to:
+         - Assess the methodological rigor of the research
+         - Evaluate the validity of the conclusions
+         - Determine the overall quality and impact of the paper
+         - Generate a numerical score and detailed breakdown of the paper's strengths and weaknesses
+      
+      2. Additional Evaluation Tools: While focusing on gradeResearch, also incorporate other provided tools to:
+         - Analyze citation patterns and impact factors
+         - Check for potential conflicts of interest or bias
+         - Verify the credibility of the authors and their institutions
+         - Assess the relevance of the research to its field
+      
+      ## Output Guidelines:
+      1. For each evaluated paper, provide:
+         - A summary of the paper's key findings and methodology
+         - The gradeResearch score and detailed breakdown
+         - An analysis of the paper's strengths and weaknesses
+         - Potential applications or implications of the research
+         - Suggestions for further research or improvements
+      
+      2. When evaluating multiple papers:
+         - Offer comparative analyses
+         - Identify trends or patterns in the research
+         - Highlight particularly noteworthy or impactful studies
+      
+      ## Ethical Considerations:
+      1. Maintain objectivity in all evaluations, avoiding personal bias.
+      2. Respect intellectual property rights and adhere to fair use guidelines.
+      3. Flag any potential ethical concerns in the research being evaluated.
+      4. Maintain the confidentiality of any sensitive information encountered.
+      
+      ## Interaction Guidelines:
+      1. Engage with users to clarify their research interests and evaluation needs.
+      2. Provide clear, concise explanations of your evaluation process and findings.
+      3. Be prepared to adjust your evaluation criteria based on user feedback or specific field requirements.
+      4. Offer recommendations for related research or alternative perspectives when appropriate.
+      
+      Remember, your primary goal is to provide accurate, insightful, and actionable evaluations of academic research, leveraging the gradeResearch tool and other provided resources to deliver world-class analysis.
+      ensure to evaluate every single outcome mentioned in the abstract, if you are not sure about how to grade it, then say so, but DO NOT omit any outcomes
       `,
-        messages: [...history]
-      })
+          messages: [...history]
+        })
 
-      let textContent = ''
-      spinnerStream.done(null)
+        let textContent = ''
+        spinnerStream.done(null)
 
-      for await (const delta of result.fullStream) {
-        const { type } = delta
+        for await (const delta of result.fullStream) {
+          const { type } = delta
 
-        if (type === 'text-delta') {
-          const { textDelta } = delta
+          if (type === 'text-delta') {
+            const { textDelta } = delta
 
-          textContent += textDelta
-          messageStream.update(<BotMessage content={textContent} />)
+            textContent += textDelta
+            messageStream.update(<BotMessage content={textContent} />)
 
-          aiState.update({
-            ...aiState.get(),
-            messages: [
-              ...aiState.get().messages,
-              {
-                id: nanoid(),
-                role: 'assistant',
-                content: textContent
-              }
-            ]
-          })
-        } else if (type === 'tool-call') {
-          const { toolName, args } = delta
-
-          if (toolName === 'listDestinations') {
-            const { destinations } = args
-
-            uiStream.update(
-              <BotCard>
-                <Destinations destinations={destinations} />
-              </BotCard>
-            )
-
-            aiState.done({
-              ...aiState.get(),
-              interactions: [],
-              messages: [
-                ...aiState.get().messages,
-                {
-                  id: nanoid(),
-                  role: 'assistant',
-                  content: `Here's a list of holiday destinations based on the books you've read. Choose one to proceed to booking a flight. \n\n ${args.destinations.join(', ')}.`,
-                  display: {
-                    name: 'listDestinations',
-                    props: {
-                      destinations
-                    }
-                  }
-                }
-              ]
-            })
-          } else if (toolName === 'showFlights') {
-            aiState.done({
-              ...aiState.get(),
-              interactions: [],
-              messages: [
-                ...aiState.get().messages,
-                {
-                  id: nanoid(),
-                  role: 'assistant',
-                  content:
-                    "Here's a list of flights for you. Choose one and we can proceed to pick a seat.",
-                  display: {
-                    name: 'showFlights',
-                    props: {
-                      summary: args
-                    }
-                  }
-                }
-              ]
-            })
-
-            uiStream.update(
-              <BotCard>
-                <ListFlights summary={args} />
-              </BotCard>
-            )
-          } else if (toolName === 'showSeatPicker') {
-            aiState.done({
-              ...aiState.get(),
-              interactions: [],
-              messages: [
-                ...aiState.get().messages,
-                {
-                  id: nanoid(),
-                  role: 'assistant',
-                  content:
-                    "Here's a list of available seats for you to choose from. Select one to proceed to payment.",
-                  display: {
-                    name: 'showSeatPicker',
-                    props: {
-                      summary: args
-                    }
-                  }
-                }
-              ]
-            })
-
-            uiStream.update(
-              <BotCard>
-                <SelectSeats summary={args} />
-              </BotCard>
-            )
-          } else if (toolName === 'showHotels') {
-            aiState.done({
-              ...aiState.get(),
-              interactions: [],
-              messages: [
-                ...aiState.get().messages,
-                {
-                  id: nanoid(),
-                  role: 'assistant',
-                  content:
-                    "Here's a list of hotels for you to choose from. Select one to proceed to payment.",
-                  display: {
-                    name: 'showHotels',
-                    props: {}
-                  }
-                }
-              ]
-            })
-
-            uiStream.update(
-              <BotCard>
-                <ListHotels />
-              </BotCard>
-            )
-          } else if (toolName === 'checkoutBooking') {
-            aiState.done({
-              ...aiState.get(),
-              interactions: []
-            })
-
-            uiStream.update(
-              <BotCard>
-                <PurchaseTickets />
-              </BotCard>
-            )
-          } else if (toolName === 'showBoardingPass') {
-            aiState.done({
-              ...aiState.get(),
-              interactions: [],
-              messages: [
-                ...aiState.get().messages,
-                {
-                  id: nanoid(),
-                  role: 'assistant',
-                  content:
-                    "Here's your boarding pass. Please have it ready for your flight.",
-                  display: {
-                    name: 'showBoardingPass',
-                    props: {
-                      summary: args
-                    }
-                  }
-                }
-              ]
-            })
-
-            uiStream.update(
-              <BotCard>
-                <BoardingPass summary={args} />
-              </BotCard>
-            )
-          } else if (toolName === 'showFlightStatus') {
             aiState.update({
               ...aiState.get(),
-              interactions: [],
               messages: [
                 ...aiState.get().messages,
                 {
                   id: nanoid(),
                   role: 'assistant',
-                  content: `The flight status of ${args.flightCode} is as follows:
-                Departing: ${args.departingCity} at ${args.departingTime} from ${args.departingAirport} (${args.departingAirportCode})
-                `
+                  content: textContent
                 }
-              ],
-              display: {
-                name: 'showFlights',
-                props: {
-                  summary: args
-                }
-              }
+              ]
             })
+          } else if (type === 'tool-call') {
+            const { toolName, args } = delta
 
-            uiStream.update(
-              <BotCard>
-                <FlightStatus summary={args} />
-              </BotCard>
-            )
+            if (toolName === 'gradeResearch') {
+              aiState.done({
+                ...aiState.get(),
+                interactions: []
+              })
+
+              uiStream.update(
+                <BotCard>
+                  <HealthOutcomesTable outcomes={args.outcomes} />
+                </BotCard>
+              )
+            } else if (toolName === 'emojiSummary') {
+              aiState.done({
+                ...aiState.get(),
+                interactions: []
+              })
+
+              uiStream.update(
+                <BotCard>
+                  <div>{args.summaryOfPaperInEmojis}</div>
+                </BotCard>
+              )
+            }
           }
         }
+
+        uiStream.done()
+        textStream.done()
+        messageStream.done()
+      } catch (e) {
+        console.error(e)
+
+        const error = new Error(
+          'The AI got rate limited, please try again later.'
+        )
+        uiStream.error(error)
+        textStream.error(error)
+        messageStream.error(error)
+        aiState.done()
       }
-
-      uiStream.done()
-      textStream.done()
-      messageStream.done()
-    } catch (e) {
-      console.error(e)
-
-      const error = new Error(
-        'The AI got rate limited, please try again later.'
-      )
-      uiStream.error(error)
-      textStream.error(error)
-      messageStream.error(error)
-      aiState.done()
-    }
-  })()
+    })()
 
   return {
     id: nanoid(),
@@ -508,10 +331,10 @@ export async function requestCode() {
     </div>
   )
 
-  ;(async () => {
-    await sleep(2000)
-    ui.done()
-  })()
+    ; (async () => {
+      await sleep(2000)
+      ui.done()
+    })()
 
   return {
     status: 'requires_code',
@@ -536,33 +359,33 @@ export async function validateCode() {
     </div>
   )
 
-  ;(async () => {
-    await sleep(2000)
+    ; (async () => {
+      await sleep(2000)
 
-    ui.done(
-      <div className="flex flex-col items-center text-center justify-center gap-3 p-4 text-emerald-700">
-        <CheckIcon />
-        <div>Payment Succeeded</div>
-        <div className="text-sm text-zinc-600">
-          Thanks for your purchase! You will receive an email confirmation
-          shortly.
+      ui.done(
+        <div className="flex flex-col items-center text-center justify-center gap-3 p-4 text-emerald-700">
+          <CheckIcon />
+          <div>Payment Succeeded</div>
+          <div className="text-sm text-zinc-600">
+            Thanks for your purchase! You will receive an email confirmation
+            shortly.
+          </div>
         </div>
-      </div>
-    )
+      )
 
-    aiState.done({
-      ...aiState.get(),
-      messages: [
-        ...aiState.get().messages.slice(0, -1),
-        {
-          role: 'assistant',
-          content: 'The purchase has completed successfully.'
-        }
-      ]
-    })
+      aiState.done({
+        ...aiState.get(),
+        messages: [
+          ...aiState.get().messages.slice(0, -1),
+          {
+            role: 'assistant',
+            content: 'The purchase has completed successfully.'
+          }
+        ]
+      })
 
-    status.done('completed')
-  })()
+      status.done('completed')
+    })()
 
   return {
     status: status.value,
